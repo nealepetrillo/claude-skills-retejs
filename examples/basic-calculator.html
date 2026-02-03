@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Rete.js Calculator - Basic Example</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "rete": "https://cdn.jsdelivr.net/npm/rete@2/+esm",
+      "rete-area-plugin": "https://cdn.jsdelivr.net/npm/rete-area-plugin@2/+esm",
+      "rete-connection-plugin": "https://cdn.jsdelivr.net/npm/rete-connection-plugin@2/+esm",
+      "@retejs/lit-plugin": "https://cdn.jsdelivr.net/npm/@retejs/lit-plugin@2/+esm",
+      "rete-render-utils": "https://cdn.jsdelivr.net/npm/rete-render-utils@2/+esm",
+      "rete-engine": "https://cdn.jsdelivr.net/npm/rete-engine@2/+esm",
+      "lit": "https://cdn.jsdelivr.net/npm/lit@3/+esm"
+    }
+  }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 1rem;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 500;
+    }
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 4px;
+      background: #0f3460;
+      color: #eee;
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: background 0.2s;
+    }
+    button:hover { background: #e94560; }
+    #editor {
+      flex: 1;
+      position: relative;
+    }
+    .result-panel {
+      position: absolute;
+      bottom: 1rem;
+      right: 1rem;
+      background: rgba(22, 33, 62, 0.95);
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid #0f3460;
+      min-width: 150px;
+    }
+    .result-panel h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.875rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .result-value {
+      font-size: 2rem;
+      font-weight: 600;
+      color: #e94560;
+    }
+    .instructions {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      background: rgba(22, 33, 62, 0.95);
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid #0f3460;
+      max-width: 250px;
+      font-size: 0.875rem;
+    }
+    .instructions h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.875rem;
+      color: #e94560;
+    }
+    .instructions ul {
+      margin: 0;
+      padding-left: 1.25rem;
+      color: #aaa;
+    }
+    .instructions li { margin: 0.25rem 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Visual Calculator</h1>
+      <div class="toolbar">
+        <button id="btn-add-number">+ Number</button>
+        <button id="btn-add-add">+ Add</button>
+        <button id="btn-add-multiply">+ Multiply</button>
+        <button id="btn-arrange">Auto Arrange</button>
+        <button id="btn-clear">Clear</button>
+      </div>
+    </header>
+    <div id="editor">
+      <div class="instructions">
+        <h3>How to Use</h3>
+        <ul>
+          <li>Click buttons to add nodes</li>
+          <li>Drag from output to input to connect</li>
+          <li>Change number values to compute</li>
+          <li>Connect to Result node to see output</li>
+        </ul>
+      </div>
+      <div class="result-panel">
+        <h3>Result</h3>
+        <div class="result-value" id="result">0</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { NodeEditor, ClassicPreset, getUID } from 'rete';
+    import { AreaPlugin, AreaExtensions } from 'rete-area-plugin';
+    import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin';
+    import { LitPlugin, Presets } from '@retejs/lit-plugin';
+    import { DataflowEngine } from 'rete-engine';
+
+    // Socket for number connections
+    const numberSocket = new ClassicPreset.Socket('Number');
+
+    // Number input node
+    class NumberNode extends ClassicPreset.Node {
+      constructor(initial = 0) {
+        super('Number');
+        this.width = 180;
+        this.height = 120;
+        this.addControl('value', new ClassicPreset.InputControl('number', { initial }));
+        this.addOutput('value', new ClassicPreset.Output(numberSocket, 'Value'));
+      }
+      data() {
+        const ctrl = this.controls['value'];
+        return { value: ctrl.value ?? 0 };
+      }
+    }
+
+    // Addition node
+    class AddNode extends ClassicPreset.Node {
+      constructor() {
+        super('Add');
+        this.width = 180;
+        this.height = 195;
+        this.addInput('a', new ClassicPreset.Input(numberSocket, 'A'));
+        this.addInput('b', new ClassicPreset.Input(numberSocket, 'B'));
+        this.addOutput('sum', new ClassicPreset.Output(numberSocket, 'Sum'));
+      }
+      data(inputs) {
+        const a = inputs.a?.[0] ?? 0;
+        const b = inputs.b?.[0] ?? 0;
+        return { sum: a + b };
+      }
+    }
+
+    // Multiply node
+    class MultiplyNode extends ClassicPreset.Node {
+      constructor() {
+        super('Multiply');
+        this.width = 180;
+        this.height = 195;
+        this.addInput('a', new ClassicPreset.Input(numberSocket, 'A'));
+        this.addInput('b', new ClassicPreset.Input(numberSocket, 'B'));
+        this.addOutput('product', new ClassicPreset.Output(numberSocket, 'Product'));
+      }
+      data(inputs) {
+        const a = inputs.a?.[0] ?? 1;
+        const b = inputs.b?.[0] ?? 1;
+        return { product: a * b };
+      }
+    }
+
+    // Result display node
+    class ResultNode extends ClassicPreset.Node {
+      constructor(onUpdate) {
+        super('Result');
+        this.width = 180;
+        this.height = 120;
+        this.onUpdate = onUpdate;
+        this.addInput('value', new ClassicPreset.Input(numberSocket, 'Value'));
+      }
+      data(inputs) {
+        const value = inputs.value?.[0] ?? 0;
+        if (this.onUpdate) this.onUpdate(value);
+        return {};
+      }
+    }
+
+    // Main editor setup
+    async function createEditor(container) {
+      const editor = new NodeEditor();
+      const area = new AreaPlugin(container);
+      const connection = new ConnectionPlugin();
+      const render = new LitPlugin();
+      const engine = new DataflowEngine();
+
+      // Add presets
+      render.addPreset(Presets.classic.setup());
+      connection.addPreset(ConnectionPresets.classic.setup());
+
+      // Connect plugins
+      editor.use(area);
+      editor.use(engine);
+      area.use(connection);
+      area.use(render);
+
+      // Enable selection
+      AreaExtensions.selectableNodes(area, AreaExtensions.selector(), {
+        accumulating: AreaExtensions.accumulateOnCtrl()
+      });
+      AreaExtensions.simpleNodesOrder(area);
+
+      // Update result display
+      const updateResult = (value) => {
+        document.getElementById('result').textContent =
+          typeof value === 'number' ? value.toLocaleString() : value;
+      };
+
+      // Process graph whenever changes occur
+      const process = async () => {
+        engine.reset();
+        const resultNodes = editor.getNodes().filter(n => n instanceof ResultNode);
+        for (const node of resultNodes) {
+          await engine.fetch(node.id);
+        }
+      };
+
+      editor.addPipe((context) => {
+        if (['connectioncreated', 'connectionremoved'].includes(context.type)) {
+          setTimeout(process, 10);
+        }
+        return context;
+      });
+
+      // Also process when control values change
+      area.addPipe((context) => {
+        if (context.type === 'render' && context.data.type === 'control') {
+          setTimeout(process, 10);
+        }
+        return context;
+      });
+
+      // Create initial nodes
+      const num1 = new NumberNode(5);
+      const num2 = new NumberNode(10);
+      const add = new AddNode();
+      const result = new ResultNode(updateResult);
+
+      await editor.addNode(num1);
+      await editor.addNode(num2);
+      await editor.addNode(add);
+      await editor.addNode(result);
+
+      await area.translate(num1.id, { x: 50, y: 50 });
+      await area.translate(num2.id, { x: 50, y: 250 });
+      await area.translate(add.id, { x: 350, y: 150 });
+      await area.translate(result.id, { x: 650, y: 150 });
+
+      // Connect nodes
+      await editor.addConnection(new ClassicPreset.Connection(num1, 'value', add, 'a'));
+      await editor.addConnection(new ClassicPreset.Connection(num2, 'value', add, 'b'));
+      await editor.addConnection(new ClassicPreset.Connection(add, 'sum', result, 'value'));
+
+      // Fit viewport
+      AreaExtensions.zoomAt(area, editor.getNodes());
+
+      // Initial process
+      await process();
+
+      return { editor, area, engine, process, updateResult };
+    }
+
+    // Initialize
+    const container = document.getElementById('editor');
+    const { editor, area, engine, process, updateResult } = await createEditor(container);
+
+    // Toolbar handlers
+    let nodeY = 50;
+    const getNextY = () => { const y = nodeY; nodeY += 150; return y; };
+
+    document.getElementById('btn-add-number').addEventListener('click', async () => {
+      const node = new NumberNode(0);
+      await editor.addNode(node);
+      await area.translate(node.id, { x: 50, y: getNextY() });
+    });
+
+    document.getElementById('btn-add-add').addEventListener('click', async () => {
+      const node = new AddNode();
+      await editor.addNode(node);
+      await area.translate(node.id, { x: 350, y: getNextY() });
+    });
+
+    document.getElementById('btn-add-multiply').addEventListener('click', async () => {
+      const node = new MultiplyNode();
+      await editor.addNode(node);
+      await area.translate(node.id, { x: 350, y: getNextY() });
+    });
+
+    document.getElementById('btn-arrange').addEventListener('click', () => {
+      AreaExtensions.zoomAt(area, editor.getNodes());
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', async () => {
+      for (const conn of [...editor.getConnections()]) {
+        await editor.removeConnection(conn.id);
+      }
+      const nodesToRemove = editor.getNodes().filter(n => !(n instanceof ResultNode));
+      for (const node of nodesToRemove) {
+        await editor.removeNode(node.id);
+      }
+      nodeY = 50;
+      updateResult(0);
+    });
+  </script>
+</body>
+</html>
