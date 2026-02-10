@@ -1,6 +1,7 @@
 ---
 name: retejs
-description: Create visual node-based editors and workflow builders using Rete.js v2. Build interactive node graphs with custom nodes, dataflow/control-flow processing, and E2E testing support. Generates framework-agnostic code using Lit or vanilla JavaScript without React, Vue, or Angular dependencies.
+description: This skill should be used when the user asks to "create a node editor", "build a visual workflow", "create a node-based interface", "add rete.js", "build a node graph", "create a dataflow editor", "build a visual programming interface", "connect nodes", or needs to implement visual node editors, workflow builders, or dataflow/control-flow processing using Rete.js v2 with Lit or vanilla JavaScript.
+version: 0.1.0
 ---
 
 # Rete.js v2 Visual Editor Skill
@@ -99,60 +100,11 @@ AreaExtensions.zoomAt(area, editor.getNodes());
 
 ## Custom Node Classes
 
-### Basic Custom Node
-```typescript
-class NumberNode extends ClassicPreset.Node {
-  width = 180;
-  height = 120;
+Extend `ClassicPreset.Node` to create custom nodes. Define `width` and `height` for layout compatibility. Add inputs, outputs, and controls in the constructor. Implement a `data()` method for dataflow engine integration.
 
-  constructor(initial: number = 0) {
-    super("Number");
-    this.addControl("value", new ClassicPreset.InputControl("number", { initial }));
-    this.addOutput("value", new ClassicPreset.Output(socket, "Value"));
-  }
+For type-safe connections, extend `ClassicPreset.Socket` with `isCompatibleWith()` to restrict which sockets can connect.
 
-  // For dataflow engine
-  data(): { value: number } {
-    const control = this.controls["value"] as ClassicPreset.InputControl<"number">;
-    return { value: control.value ?? 0 };
-  }
-}
-
-class AddNode extends ClassicPreset.Node {
-  width = 180;
-  height = 195;
-
-  constructor() {
-    super("Add");
-    this.addInput("left", new ClassicPreset.Input(socket, "Left"));
-    this.addInput("right", new ClassicPreset.Input(socket, "Right"));
-    this.addOutput("value", new ClassicPreset.Output(socket, "Result"));
-  }
-
-  data(inputs: { left?: number[]; right?: number[] }): { value: number } {
-    const left = inputs.left?.[0] ?? 0;
-    const right = inputs.right?.[0] ?? 0;
-    return { value: left + right };
-  }
-}
-```
-
-### Custom Socket Types (for validation)
-```typescript
-class NumberSocket extends ClassicPreset.Socket {
-  constructor() { super("Number"); }
-  isCompatibleWith(socket: ClassicPreset.Socket) {
-    return socket instanceof NumberSocket;
-  }
-}
-
-class StringSocket extends ClassicPreset.Socket {
-  constructor() { super("String"); }
-  isCompatibleWith(socket: ClassicPreset.Socket) {
-    return socket instanceof StringSocket;
-  }
-}
-```
+See `references/editor-examples.md` for complete examples including NumberNode, AddNode, custom socket types, dynamic inputs, and dropdown controls.
 
 ## Processing Engines
 
@@ -253,95 +205,9 @@ editor.addPipe((context) => {
 
 ## Import/Export (Serialization)
 
-### Export Pattern
-```typescript
-interface SerializedNode {
-  id: string;
-  type: string;
-  position: { x: number; y: number };
-  data: Record<string, unknown>;
-}
+Serialize graphs by iterating `editor.getNodes()` and `editor.getConnections()`, capturing node positions from `area.nodeViews`. Deserialize by clearing the editor, recreating nodes via a type-keyed factory, preserving original IDs, and restoring connections.
 
-interface SerializedConnection {
-  id: string;
-  source: string;
-  sourceOutput: string;
-  target: string;
-  targetInput: string;
-}
-
-interface SerializedGraph {
-  nodes: SerializedNode[];
-  connections: SerializedConnection[];
-}
-
-async function exportGraph(editor: NodeEditor<Schemes>, area: AreaPlugin<Schemes, AreaExtra>): Promise<SerializedGraph> {
-  const nodes: SerializedNode[] = [];
-
-  for (const node of editor.getNodes()) {
-    const view = area.nodeViews.get(node.id);
-    nodes.push({
-      id: node.id,
-      type: node.label,
-      position: view?.position ?? { x: 0, y: 0 },
-      data: extractNodeData(node) // Custom function to extract control values
-    });
-  }
-
-  const connections: SerializedConnection[] = editor.getConnections().map(conn => ({
-    id: conn.id,
-    source: conn.source,
-    sourceOutput: conn.sourceOutput,
-    target: conn.target,
-    targetInput: conn.targetInput
-  }));
-
-  return { nodes, connections };
-}
-```
-
-### Import Pattern
-```typescript
-async function importGraph(
-  editor: NodeEditor<Schemes>,
-  area: AreaPlugin<Schemes, AreaExtra>,
-  data: SerializedGraph
-) {
-  await editor.clear();
-
-  // Create node factory
-  const nodeFactory: Record<string, (data: Record<string, unknown>) => ClassicPreset.Node> = {
-    "Number": (d) => new NumberNode(d.value as number),
-    "Add": () => new AddNode(),
-    // Add more node types...
-  };
-
-  // Import nodes
-  for (const nodeData of data.nodes) {
-    const factory = nodeFactory[nodeData.type];
-    if (!factory) continue;
-
-    const node = factory(nodeData.data);
-    node.id = nodeData.id; // Preserve original ID
-    await editor.addNode(node);
-    await area.translate(node.id, nodeData.position);
-  }
-
-  // Import connections
-  for (const connData of data.connections) {
-    const source = editor.getNode(connData.source);
-    const target = editor.getNode(connData.target);
-    if (!source || !target) continue;
-
-    const connection = new ClassicPreset.Connection(
-      source, connData.sourceOutput,
-      target, connData.targetInput
-    );
-    connection.id = connData.id;
-    await editor.addConnection(connection);
-  }
-}
-```
+See `references/editor-examples.md` for complete export/import patterns with `SerializedGraph` interfaces.
 
 ## Essential Plugins
 
@@ -452,65 +318,9 @@ selectableNodes.unselect(nodeId);      // Remove from selection
 
 ## E2E Testing with Playwright
 
-See `references/testing-guide.md` for comprehensive testing patterns.
+Test Rete.js editors using Playwright with `data-testid` attributes on nodes, sockets, and connections. Add test IDs via `render.addPreset(Presets.classic.setup({ customize: { ... } }))`. Use the `rete-qa` package for regression testing across browsers.
 
-### Basic Test Structure
-```typescript
-import { test, expect } from '@playwright/test';
-
-test.describe('Node Editor', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/editor');
-    await page.waitForSelector('.rete-background'); // Wait for editor
-  });
-
-  test('should create node via context menu', async ({ page }) => {
-    // Right-click to open context menu
-    await page.click('.rete-background', { button: 'right' });
-    await page.click('text=Number');
-
-    // Verify node created
-    const nodes = await page.locator('[data-testid="node"]').count();
-    expect(nodes).toBe(1);
-  });
-
-  test('should connect two nodes', async ({ page }) => {
-    // Create nodes and connect them
-    const outputSocket = page.locator('[data-testid="output-socket"]').first();
-    const inputSocket = page.locator('[data-testid="input-socket"]').first();
-
-    await outputSocket.dragTo(inputSocket);
-
-    // Verify connection
-    const connections = await page.locator('[data-testid="connection"]').count();
-    expect(connections).toBe(1);
-  });
-});
-```
-
-### Adding Test IDs to Components
-```typescript
-// Custom node component for testing
-render.addPreset(Presets.classic.setup({
-  customize: {
-    node() {
-      return (props) => html`
-        <div data-testid="node" data-node-id="${props.data.id}">
-          ${Presets.classic.Node(props)}
-        </div>
-      `;
-    },
-    socket(context) {
-      const side = context.payload.side;
-      return (props) => html`
-        <div data-testid="${side}-socket" data-socket-key="${context.payload.key}">
-          ${Presets.classic.Socket(props)}
-        </div>
-      `;
-    }
-  }
-}));
-```
+See `references/testing-guide.md` for complete setup, test utilities, Page Object Models, and test suites covering node creation, connections, controls, serialization, and CI/CD integration.
 
 ## Graph Operations (rete-structures)
 
@@ -556,10 +366,16 @@ graph.intersection(otherGraph);
 2. **Test serialization** - Verify import/export roundtrips
 3. **Test edge cases** - Cycles, disconnected nodes, invalid connections
 
-## Resources
+## Additional Resources
 
-- **Documentation**: https://retejs.org/docs
-- **Examples**: https://retejs.org/examples
+### Reference Files
+
+For detailed patterns and complete code examples, consult:
+- **`references/editor-examples.md`** - Complete node implementations, custom sockets, serialization, plugin setup, and graph utilities
+- **`references/testing-guide.md`** - Playwright setup, Page Object Models, test suites, visual regression, and CI/CD integration
+
+### External Documentation
+
+- **Rete.js Docs**: https://retejs.org/docs
+- **Examples Gallery**: https://retejs.org/examples
 - **GitHub**: https://github.com/retejs
-- **Testing Guide**: `references/testing-guide.md`
-- **Code Examples**: `references/editor-examples.md`
