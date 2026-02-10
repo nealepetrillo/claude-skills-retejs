@@ -1,0 +1,45 @@
+name: Build Skill
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find skill directory
+        id: find-skill
+        run: |
+          SKILL_DIR=$(find .claude/skills -mindepth 1 -maxdepth 1 -type d | head -1)
+          SKILL_NAME=$(basename "$SKILL_DIR")
+          echo "skill_name=$SKILL_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Validate SKILL.md
+        run: |
+          SKILL_MD=".claude/skills/${{ steps.find-skill.outputs.skill_name }}/SKILL.md"
+          if [ ! -f "$SKILL_MD" ]; then
+            echo "::error::SKILL.md not found at $SKILL_MD"
+            exit 1
+          fi
+          # Check for YAML frontmatter
+          if ! head -1 "$SKILL_MD" | grep -q '^---$'; then
+            echo "::error::SKILL.md is missing YAML frontmatter"
+            exit 1
+          fi
+
+      - name: Package skill
+        run: |
+          cd .claude/skills
+          zip -r "$GITHUB_WORKSPACE/${{ steps.find-skill.outputs.skill_name }}.skill" \
+            "${{ steps.find-skill.outputs.skill_name }}/"
+
+      - name: Upload skill artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find-skill.outputs.skill_name }}.skill
+          path: ${{ steps.find-skill.outputs.skill_name }}.skill
